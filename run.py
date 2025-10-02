@@ -7,7 +7,6 @@ def main():
 
     db = Database()
 
-
 if __name__ == "__main__":
 
     # # Populate the database with initial records
