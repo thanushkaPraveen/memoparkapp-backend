@@ -64,6 +64,109 @@ def create_parking_event():
 
     return jsonify(response_data), 201
 
+@parking_bp.route('', methods=['GET']) # Corresponds to GET /parking
+@jwt_required()
+def get_all_parking_events():
+    current_user_id = get_jwt_identity()
+
+    # Query the database for all events belonging to the current user
+    user_events = ParkingEvent.query.filter_by(user_id=current_user_id).order_by(ParkingEvent.created_at.desc()).all()
+
+    # Serialize the list of event objects into a list of dictionaries
+    events_list = []
+    for event in user_events:
+        events_list.append({
+            "parking_events_id": event.parking_events_id,
+            "parking_location_name": event.parking_location_name,
+            "notes": event.notes,
+            "started_at": event.started_at.isoformat(),
+            "status": event.status.name
+        })
+
+    return jsonify(events_list), 200
+
+
+@parking_bp.route('/<int:event_id>', methods=['GET'])  # Corresponds to GET /parking/<id>
+@jwt_required()
+def get_single_parking_event(event_id):
+    current_user_id = get_jwt_identity()
+
+    # Query for the specific event, ensuring it belongs to the current user
+    event = ParkingEvent.query.filter_by(
+        parking_events_id=event_id,
+        user_id=current_user_id
+    ).first()
+
+    # If the event doesn't exist or doesn't belong to the user, return a 404
+    if not event:
+        return jsonify({"message": "Parking event not found"}), 404
+
+    # --- Serialize the data, including related landmarks and score ---
+
+    # Serialize landmarks
+    landmarks_list = []
+    for landmark in event.landmarks:
+        landmarks_list.append({
+            "landmarks_id": landmark.landmarks_id,
+            "location_name": landmark.location_name,
+            "is_achieved": landmark.is_achieved
+        })
+
+    # Serialize score (if it exists)
+    score_data = None
+    if event.score:
+        score_data = {
+            "scores_id": event.score.scores_id,
+            "task_score": event.score.task_score,
+            # Add other score fields as needed
+        }
+
+    # Build the final response object
+    response_data = {
+        "parking_events_id": event.parking_events_id,
+        "parking_location_name": event.parking_location_name,
+        "notes": event.notes,
+        "started_at": event.started_at.isoformat(),
+        "status": event.status.name,
+        "landmarks": landmarks_list,
+        "score": score_data
+    }
+
+    return jsonify(response_data), 200
+
+@parking_bp.route('/<int:event_id>', methods=['PUT'])  # Corresponds to PUT /parking/<id>
+@jwt_required()
+def update_parking_event(event_id):
+    current_user_id = get_jwt_identity()
+
+    # Find the specific event and ensure it belongs to the current user
+    event = ParkingEvent.query.filter_by(
+        parking_events_id=event_id,
+        user_id=current_user_id
+    ).first()
+
+    if not event:
+        return jsonify({"message": "Parking event not found"}), 404
+
+    data = request.get_json()
+
+    # Update fields if they are provided in the request body
+    if 'status' in data:
+        event.status = data['status']
+        # If the event is being marked as retrieved, set the end time
+        if data['status'] == 'retrieved':
+            event.ended_at = datetime.datetime.now(datetime.timezone.utc)
+
+    if 'notes' in data:
+        event.notes = data['notes']
+
+    # Add any other fields you want to be updatable here
+
+    db.session.commit()
+
+    # You can return the updated object, similar to the GET single event endpoint
+    return jsonify({"message": f"Event {event_id} updated successfully"}), 200
+
 # add landmarks
 @parking_bp.route('/<int:event_id>/landmarks', methods=['POST'])
 @jwt_required()

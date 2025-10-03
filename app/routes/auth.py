@@ -1,9 +1,10 @@
 from flask import Blueprint, request, jsonify
-from flask_jwt_extended import create_access_token
+from flask_jwt_extended import create_access_token, get_jwt
 from app.models.user import User
 from app.models.emergency_contact import EmergencyContact
 from app.extensions import db
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from app.models.token_blocklist import TokenBlocklist
 
 auth_bp = Blueprint('auth_bp', __name__, url_prefix='/auth')
 
@@ -105,3 +106,17 @@ def get_profile():
         "user_email": user.user_email,
         "emergency_contacts": emergency_contacts_list  # Add the list to the response
     }), 200
+
+
+@auth_bp.route('/logout', methods=['POST'])
+@jwt_required()
+def logout():
+    # Get the unique identifier of the token
+    jti = get_jwt()["jti"]
+
+    # Add the jti to the blocklist database
+    blocklist_entry = TokenBlocklist(jti=jti)
+    db.session.add(blocklist_entry)
+    db.session.commit()
+
+    return jsonify({"message": "Successfully logged out"}), 200

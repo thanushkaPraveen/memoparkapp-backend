@@ -1,5 +1,7 @@
 import os
 import configparser
+from datetime import timedelta
+
 
 def load_db_config(filename='config.ini', section='mysql'):
     """ Read database configuration file and return a dictionary object """
@@ -29,6 +31,11 @@ class Config:
     # General Config
     SECRET_KEY = os.environ.get('SECRET_KEY', 'a_very_secret_key_you_should_change')
     JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'a_different_very_secret_key')
+    JWT_ACCESS_TOKEN_EXPIRES = timedelta(days=1) # <-- Set token to expire in 1 day
+
+    # --- JWT Blocklist Configuration ---
+    JWT_BLOCKLIST_ENABLED = True
+    JWT_BLOCKLIST_TOKEN_CHECKS = ['access', 'refresh']
 
     # Database Config
     SQLALCHEMY_TRACK_MODIFICATIONS = False
