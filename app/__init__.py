@@ -24,6 +24,10 @@ def create_app(config_object='config.Config'):
 
     # Register Blueprints
     from .routes.auth import auth_bp
+    from .routes.parking_routes import parking_bp
+
     app.register_blueprint(auth_bp)
+    app.register_blueprint(parking_bp)
+
 
     return app
