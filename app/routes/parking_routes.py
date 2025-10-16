@@ -149,10 +149,14 @@ def get_single_parking_event(event_id):
         "parking_latitude": float(event.parking_latitude),
         "parking_longitude": float(event.parking_longitude),
         "parking_location_name": event.parking_location_name,
+        "parking_address": event.parking_address,
         "notes": event.notes,
+        "parking_type": event.parking_type.name,  # Use .name for enums
+        "level_floor": event.level_floor,
+        "parking_slot": event.parking_slot,
         "photo_url": photo_url, # This will be the temporary, working URL
         "started_at": event.started_at.isoformat(),
-        "ended_at": event.ended_at.isoformat() if event.ended_at else None,
+        "ended_at": event.ended_at,
         "status": event.status.name,
         "landmarks": landmarks_list,
         "score": score_data
