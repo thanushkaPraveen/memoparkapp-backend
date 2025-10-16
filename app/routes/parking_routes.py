@@ -332,3 +332,95 @@ def upload_photo_to_event(event_id):
         "message": "Photo uploaded successfully",
         "s3_key": s3_key # Return the key instead of the URL
     }), 200
+
+@parking_bp.route('/latest-active', methods=['GET'])
+@jwt_required()
+def get_latest_active_parking_event():
+    current_user_id = get_jwt_identity()
+
+    event = ParkingEvent.query.filter_by(
+        user_id=current_user_id
+    ).order_by(ParkingEvent.started_at.desc()).first()
+
+    if not event or event.status.name != 'active':
+        return jsonify({}), 200
+
+    # --- S3 Client Setup (to be used for all pre-signed URLs) ---
+    s3_client = boto3.client(
+       "s3",
+       aws_access_key_id=current_app.config['AWS_ACCESS_KEY_ID'],
+       aws_secret_access_key=current_app.config['AWS_SECRET_ACCESS_KEY'],
+       region_name=current_app.config['AWS_REGION']
+    )
+
+    # --- Generate Pre-signed URL for the main parking event photo ---
+    main_photo_url = None
+    if event.photo_s3_key:
+        try:
+            main_photo_url = s3_client.generate_presigned_url(
+                'get_object',
+                Params={'Bucket': current_app.config['S3_BUCKET'], 'Key': event.photo_s3_key},
+                ExpiresIn=3600
+            )
+        except Exception as e:
+            print(f"Error generating pre-signed URL for event: {e}")
+
+    # --- Fully Serialize related landmarks ---
+    landmarks_list = []
+    for landmark in event.landmarks:
+        landmark_photo_url = None
+        if landmark.photo_s3_key:
+            try:
+                landmark_photo_url = s3_client.generate_presigned_url(
+                    'get_object',
+                    Params={'Bucket': current_app.config['S3_BUCKET'], 'Key': landmark.photo_s3_key},
+                    ExpiresIn=3600
+                )
+            except Exception as e:
+                print(f"Error generating pre-signed URL for landmark: {e}")
+
+        landmarks_list.append({
+            "landmarks_id": landmark.landmarks_id,
+            "parking_events_id": landmark.parking_events_id,
+            "landmark_latitude": float(landmark.landmark_latitude) if landmark.landmark_latitude else None,
+            "landmark_longitude": float(landmark.landmark_longitude) if landmark.landmark_longitude else None,
+            "location_name": landmark.location_name,
+            "distance_from_parking": landmark.distance_from_parking,
+            "photo_url": landmark_photo_url,
+            "is_achieved": landmark.is_achieved,
+            "created_at": landmark.created_at.isoformat()
+        })
+
+    # --- Fully Serialize related score ---
+    score_data = None
+    if event.score:
+        score = event.score
+        score_data = {
+            "scores_id": score.scores_id,
+            "parking_events_id": score.parking_events_id,
+            "time_factor": score.time_factor,
+            "landmark_factor": score.landmark_factor,
+            "path_performance": score.path_performance,
+            "assistance_points": score.assistance_points,
+            "no_of_landmarks": score.no_of_landmarks,
+            "landmarks_recalled": score.landmarks_recalled,
+            "task_score": score.task_score,
+            "created_at": score.created_at.isoformat()
+        }
+
+    # --- Build the final response object ---
+    response_data = {
+        "parking_events_id": event.parking_events_id,
+        "user_id": event.user_id,
+        "parking_latitude": float(event.parking_latitude),
+        "parking_longitude": float(event.parking_longitude),
+        "parking_location_name": event.parking_location_name,
+        "notes": event.notes,
+        "photo_url": main_photo_url,
+        "started_at": event.started_at.isoformat(),
+        "status": event.status.name,
+        "landmarks": landmarks_list,
+        "score": score_data
+    }
+
+    return jsonify(response_data), 200
