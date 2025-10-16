@@ -8,6 +8,11 @@ from app.models.score import Score
 from app.extensions import db
 import datetime
 
+import boto3
+from botocore.exceptions import NoCredentialsError
+from flask import current_app
+import time
+
 # Create a Blueprint for parking routes
 parking_bp = Blueprint('parking_bp', __name__, url_prefix='/parking')
 
@@ -86,7 +91,7 @@ def get_all_parking_events():
     return jsonify(events_list), 200
 
 
-@parking_bp.route('/<int:event_id>', methods=['GET'])  # Corresponds to GET /parking/<id>
+@parking_bp.route('/<int:event_id>', methods=['GET'])
 @jwt_required()
 def get_single_parking_event(event_id):
     current_user_id = get_jwt_identity()
@@ -97,13 +102,30 @@ def get_single_parking_event(event_id):
         user_id=current_user_id
     ).first()
 
-    # If the event doesn't exist or doesn't belong to the user, return a 404
     if not event:
         return jsonify({"message": "Parking event not found"}), 404
 
-    # --- Serialize the data, including related landmarks and score ---
+    # --- Generate Pre-signed URL for the photo ---
+    photo_url = None
+    if event.photo_s3_key:
+        s3_client = boto3.client(
+           "s3",
+           aws_access_key_id=current_app.config['AWS_ACCESS_KEY_ID'],
+           aws_secret_access_key=current_app.config['AWS_SECRET_ACCESS_KEY'],
+           region_name=current_app.config['AWS_REGION']
+        )
+        try:
+            photo_url = s3_client.generate_presigned_url(
+                'get_object',
+                Params={'Bucket': current_app.config['S3_BUCKET'], 'Key': event.photo_s3_key},
+                ExpiresIn=3600  # URL is valid for 1 hour
+            )
+        except Exception as e:
+            # Handle potential S3 errors gracefully
+            print(f"Error generating pre-signed URL: {e}")
+            photo_url = None
 
-    # Serialize landmarks
+    # --- Serialize related landmarks ---
     landmarks_list = []
     for landmark in event.landmarks:
         landmarks_list.append({
@@ -112,21 +134,25 @@ def get_single_parking_event(event_id):
             "is_achieved": landmark.is_achieved
         })
 
-    # Serialize score (if it exists)
+    # --- Serialize related score ---
     score_data = None
     if event.score:
         score_data = {
             "scores_id": event.score.scores_id,
-            "task_score": event.score.task_score,
-            # Add other score fields as needed
+            "task_score": event.score.task_score
         }
 
-    # Build the final response object
+    # --- Build the final response object ---
     response_data = {
         "parking_events_id": event.parking_events_id,
+        "user_id": event.user_id,
+        "parking_latitude": float(event.parking_latitude),
+        "parking_longitude": float(event.parking_longitude),
         "parking_location_name": event.parking_location_name,
         "notes": event.notes,
+        "photo_url": photo_url, # This will be the temporary, working URL
         "started_at": event.started_at.isoformat(),
+        "ended_at": event.ended_at.isoformat() if event.ended_at else None,
         "status": event.status.name,
         "landmarks": landmarks_list,
         "score": score_data
@@ -255,3 +281,50 @@ def add_score_to_event(event_id):
     }
 
     return jsonify(response_data), 201
+
+
+@parking_bp.route('/<int:event_id>/photo', methods=['POST'])
+@jwt_required()
+def upload_photo_to_event(event_id):
+    current_user_id = get_jwt_identity()
+
+    if 'photo' not in request.files:
+        return jsonify({"message": "No photo file found in the request"}), 400
+
+    file = request.files['photo']
+    if file.filename == '':
+        return jsonify({"message": "No selected file"}), 400
+
+    event = ParkingEvent.query.filter_by(parking_events_id=event_id, user_id=current_user_id).first()
+    if not event:
+        return jsonify({"message": "Parking event not found"}), 404
+
+    s3_key = f"user_{current_user_id}/parking_{int(time.time())}_{file.filename}"
+
+    s3_client = boto3.client(
+        "s3",
+        aws_access_key_id=current_app.config['AWS_ACCESS_KEY_ID'],
+        aws_secret_access_key=current_app.config['AWS_SECRET_ACCESS_KEY'],
+        region_name=current_app.config['AWS_REGION']
+    )
+
+    try:
+        s3_client.upload_fileobj(
+            file,
+            current_app.config['S3_BUCKET'],
+            s3_key,
+            ExtraArgs={'ContentType': file.content_type}
+        )
+    except Exception as e:
+        return jsonify({"message": f"An error occurred: {str(e)}"}), 500
+
+    # --- CHANGES START HERE ---
+
+    # We no longer save a static photo_url. We only need the key.
+    event.photo_s3_key = s3_key
+    db.session.commit()
+
+    return jsonify({
+        "message": "Photo uploaded successfully",
+        "s3_key": s3_key # Return the key instead of the URL
+    }), 200
