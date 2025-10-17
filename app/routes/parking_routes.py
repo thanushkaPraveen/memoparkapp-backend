@@ -226,7 +226,8 @@ def add_landmarks_to_event(event_id):
             parking_events_id=event_id,  # Link to the specific parking event
             location_name=landmark_data.get('location_name'),
             landmark_latitude=landmark_data.get('landmark_latitude'),
-            landmark_longitude=landmark_data.get('landmark_longitude')
+            landmark_longitude=landmark_data.get('landmark_longitude'),
+            distance_from_parking=landmark_data.get('distance_from_parking')
             # Add any other landmark fields here
         )
         db.session.add(new_landmark)
@@ -415,6 +416,8 @@ def get_latest_active_parking_event():
         "parking_latitude": float(event.parking_latitude),
         "parking_longitude": float(event.parking_longitude),
         "parking_location_name": event.parking_location_name,
+        "parking_type": event.parking_type.name,  # Use .name for enums
+        "level_floor": event.level_floor,
         "notes": event.notes,
         "photo_url": main_photo_url,
         "started_at": event.started_at.isoformat(),
