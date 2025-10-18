@@ -427,3 +427,50 @@ def get_latest_active_parking_event():
     }
 
     return jsonify(response_data), 200
+
+
+@parking_bp.route('/<int:event_id>/landmarks/<int:landmark_id>', methods=['PATCH'])
+@jwt_required()
+def update_landmark(event_id, landmark_id):
+    current_user_id = get_jwt_identity()
+
+    # First, verify the user owns the parent parking event
+    event = ParkingEvent.query.filter_by(
+        parking_events_id=event_id,
+        user_id=current_user_id
+    ).first()
+
+    if not event:
+        return jsonify({"message": "Parking event not found"}), 404
+
+    # Now, find the specific landmark
+    landmark = Landmark.query.get(landmark_id)
+
+    # Check that the landmark exists AND belongs to the correct event
+    if not landmark or landmark.parking_events_id != event.parking_events_id:
+        return jsonify({"message": "Landmark not found for this event"}), 404
+
+    data = request.get_json()
+
+    # Check for the 'is_achieved' key in the request body
+    if 'is_achieved' in data:
+        is_achieved_value = data.get('is_achieved')
+
+        # Ensure the value is a boolean
+        if isinstance(is_achieved_value, bool):
+            landmark.is_achieved = is_achieved_value
+        else:
+            return jsonify({"message": "Invalid data type for 'is_achieved', boolean expected"}), 400
+
+    # You could add other fields to update here as well
+    # if 'location_name' in data:
+    #     landmark.location_name = data.get('location_name')
+
+    db.session.commit()
+
+    # Return the updated landmark
+    return jsonify({
+        "message": "Landmark updated successfully",
+        "landmarks_id": landmark.landmarks_id,
+        "is_achieved": landmark.is_achieved
+    }), 200
