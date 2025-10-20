@@ -11,6 +11,8 @@ class StatusEnum(enum.Enum):
     active = 'active'
     retrieved = 'retrieved'
     expired = 'expired'
+    retrieving = 'retrieving'
+    score_watched = 'score_watched'
 
 
 class ParkingEvent(db.Model):
@@ -29,6 +31,7 @@ class ParkingEvent(db.Model):
     photo_url = db.Column(db.String(2048))
     photo_s3_key = db.Column(db.String(1024))
     started_at = db.Column(db.TIMESTAMP, nullable=True)
+    navigation_started_at = db.Column(db.TIMESTAMP, nullable=True)
     ended_at = db.Column(db.TIMESTAMP, nullable=True)
     status = db.Column(db.Enum(StatusEnum), default=StatusEnum.active, nullable=False)
     is_active = db.Column(db.Boolean, default=True)

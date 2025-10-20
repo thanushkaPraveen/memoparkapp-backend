@@ -183,6 +183,11 @@ def update_parking_event(event_id):
     # Update fields if they are provided in the request body
     if 'status' in data:
         event.status = data['status']
+
+        # If user starts navigating, set the navigation start time
+        if data['status'] == 'retrieving':
+            event.navigation_started_at = datetime.datetime.now(datetime.timezone.utc)
+
         # If the event is being marked as retrieved, set the end time
         if data['status'] == 'retrieved':
             event.ended_at = datetime.datetime.now(datetime.timezone.utc)
@@ -343,7 +348,7 @@ def get_latest_active_parking_event():
         user_id=current_user_id
     ).order_by(ParkingEvent.started_at.desc()).first()
 
-    if not event or event.status.name != 'active':
+    if not event or event.status.name not in ['active', 'retrieving']:
         return jsonify({}), 200
 
     # --- S3 Client Setup (to be used for all pre-signed URLs) ---
