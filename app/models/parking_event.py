@@ -32,6 +32,7 @@ class ParkingEvent(db.Model):
     photo_s3_key = db.Column(db.String(1024))
     started_at = db.Column(db.TIMESTAMP, nullable=True)
     navigation_started_at = db.Column(db.TIMESTAMP, nullable=True)
+    estimated_time = db.Column(db.Integer, nullable=True)
     ended_at = db.Column(db.TIMESTAMP, nullable=True)
     status = db.Column(db.Enum(StatusEnum), default=StatusEnum.active, nullable=False)
     is_active = db.Column(db.Boolean, default=True)

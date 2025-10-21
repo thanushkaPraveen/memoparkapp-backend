@@ -182,14 +182,22 @@ def update_parking_event(event_id):
 
     # Update fields if they are provided in the request body
     if 'status' in data:
-        event.status = data['status']
+        new_status = data['status']
+        event.status = new_status
 
         # If user starts navigating, set the navigation start time
-        if data['status'] == 'retrieving':
+
+        if new_status == 'retrieving':
             event.navigation_started_at = datetime.datetime.now(datetime.timezone.utc)
 
+            if 'estimated_time' in data:
+                try:
+                    event.estimated_time = int(data['estimated_time'])  # Assuming time is sent in seconds
+                except (ValueError, TypeError):
+                    return jsonify({"message": "Invalid format for estimated_time, expected integer (seconds)"}), 400
+
         # If the event is being marked as retrieved, set the end time
-        if data['status'] == 'retrieved':
+        if new_status == 'retrieved':
             event.ended_at = datetime.datetime.now(datetime.timezone.utc)
 
     if 'notes' in data:
