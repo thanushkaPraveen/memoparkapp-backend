@@ -1,4 +1,5 @@
 from app.extensions import db
+from sqlalchemy import BigInteger
 import enum
 
 
@@ -34,6 +35,8 @@ class ParkingEvent(db.Model):
     navigation_started_at = db.Column(db.TIMESTAMP, nullable=True)
     estimated_time = db.Column(db.Integer, nullable=True)
     ended_at = db.Column(db.TIMESTAMP, nullable=True)
+    finalScreenTime = db.Column(BigInteger, nullable=True)  # Store milliseconds
+    finalMapViewCount = db.Column(db.Integer, nullable=True)
     status = db.Column(db.Enum(StatusEnum), default=StatusEnum.active, nullable=False)
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.TIMESTAMP, server_default=db.func.now())

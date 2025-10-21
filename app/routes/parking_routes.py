@@ -197,8 +197,16 @@ def update_parking_event(event_id):
                     return jsonify({"message": "Invalid format for estimated_time, expected integer (seconds)"}), 400
 
         # If the event is being marked as retrieved, set the end time
-        if new_status == 'retrieved':
+        if new_status == 'retrieved' or new_status == 'expired':
             event.ended_at = datetime.datetime.now(datetime.timezone.utc)
+
+            if 'finalScreenTime' in data:
+                try: event.finalScreenTime = int(data['finalScreenTime'])
+                except (ValueError, TypeError): return jsonify({"message": "Invalid format for finalScreenTime"}), 400
+
+            if 'finalMapViewCount' in data:
+                try: event.finalMapViewCount = int(data['finalMapViewCount'])
+                except (ValueError, TypeError): return jsonify({"message": "Invalid format for finalMapViewCount"}), 400
 
     if 'notes' in data:
         event.notes = data['notes']
