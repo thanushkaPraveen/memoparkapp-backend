@@ -186,36 +186,101 @@ def update_parking_event(event_id):
         event.status = new_status
 
         # If user starts navigating, set the navigation start time
-
         if new_status == 'retrieving':
             event.navigation_started_at = datetime.datetime.now(datetime.timezone.utc)
-
             if 'estimated_time' in data:
                 try:
-                    event.estimated_time = int(data['estimated_time'])  # Assuming time is sent in seconds
+                    event.estimated_time = int(data['estimated_time'])
                 except (ValueError, TypeError):
-                    return jsonify({"message": "Invalid format for estimated_time, expected integer (seconds)"}), 400
+                    return jsonify({"message": "Invalid format for estimated_time"}), 400
 
-        # If the event is being marked as retrieved, set the end time
-        if new_status == 'retrieved' or new_status == 'expired':
-            event.ended_at = datetime.datetime.now(datetime.timezone.utc)
+            # -- End Navigation (Retrieved or Expired) --
+        elif new_status in ['retrieved', 'expired']:
+            # Set end time only if not already set (important for idempotency)
+            if not event.ended_at:
+                event.ended_at = datetime.datetime.now(datetime.timezone.utc)
 
+            # --- Save Final Metrics ---
             if 'finalScreenTime' in data:
-                try: event.finalScreenTime = int(data['finalScreenTime'])
-                except (ValueError, TypeError): return jsonify({"message": "Invalid format for finalScreenTime"}), 400
-
+                try:
+                    event.finalScreenTime = int(data['finalScreenTime'])
+                except (ValueError, TypeError):
+                    return jsonify({"message": "Invalid format for finalScreenTime"}), 400
             if 'finalMapViewCount' in data:
-                try: event.finalMapViewCount = int(data['finalMapViewCount'])
-                except (ValueError, TypeError): return jsonify({"message": "Invalid format for finalMapViewCount"}), 400
+                try:
+                    event.finalMapViewCount = int(data['finalMapViewCount'])
+                except (ValueError, TypeError):
+                    return jsonify({"message": "Invalid format for finalMapViewCount"}), 400
+
+            # --- Calculate and Save Score (Only if Retrieved and no score exists) ---
+            if new_status == 'retrieved' and not event.score:
+
+                # 1. Get Landmark Counts
+                total_landmarks = len(event.landmarks)
+                achieved_landmarks = sum(1 for lm in event.landmarks if lm.is_achieved)
+
+                # 2. Get Time Data (Handle potential None values)
+                actual_duration_seconds = None
+                if event.ended_at and event.navigation_started_at:
+
+                    # Make ended_at timezone-aware (assume UTC if naive)
+                    ended_at_aware = event.ended_at
+                    if ended_at_aware.tzinfo is None:
+                        ended_at_aware = ended_at_aware.replace(tzinfo=datetime.timezone.utc)
+
+                    # Make navigation_started_at timezone-aware (assume UTC if naive)
+                    nav_started_at_aware = event.navigation_started_at
+                    if nav_started_at_aware.tzinfo is None:
+                        nav_started_at_aware = nav_started_at_aware.replace(tzinfo=datetime.timezone.utc)
+
+                    # Now subtraction will work
+                    actual_duration_seconds = (ended_at_aware - nav_started_at_aware).total_seconds()
+
+                estimated_duration_seconds = event.estimated_time # Already saved as int (seconds)
+
+                # 3. Calculate Score Components (Placeholder Logic - need to add FORMULA)
+                # Example: Simple calculation fot this time
+                landmark_factor_score = 0
+                if total_landmarks > 0:
+                    landmark_factor_score = (achieved_landmarks / total_landmarks) * 100  # Percentage
+
+                time_factor_score = 0
+                if actual_duration_seconds and estimated_duration_seconds and estimated_duration_seconds > 0:
+                    # Score based on how close actual time was to estimate (higher is better if faster)
+                    time_factor_score = max(0.0, 100 - abs(actual_duration_seconds - estimated_duration_seconds) / estimated_duration_seconds * 100)
+
+                    # Example final score (simple average) - REPLACE WITH YOUR FORMULA
+                final_task_score = (landmark_factor_score + time_factor_score) / 2
+                time_factor_score_rounded = round(time_factor_score, 2)
+                final_task_score_rounded = round(final_task_score, 2)
+
+                path_performance = 12.9
+
+                # 4. Create Score Object
+                new_score = Score(
+                    parking_events_id=event_id,
+                    time_factor=time_factor_score_rounded,
+                    landmark_factor=round(landmark_factor_score, 2),
+                    path_performance= path_performance, # Add if needed
+                    assistance_points=event.finalMapViewCount,  #  map views as assistance points
+                    no_of_landmarks=total_landmarks,
+                    landmarks_recalled=achieved_landmarks,
+                    task_score=final_task_score_rounded
+                )
+                db.session.add(new_score)
+
+                event.status = 'active'
 
     if 'notes' in data:
         event.notes = data['notes']
 
-    # Add any other fields you want to be updatable here
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()  # Rollback in case of error
+        print(f"Error during commit: {e}")
+        return jsonify({"message": "Database error occurred"}), 500
 
-    db.session.commit()
-
-    # You can return the updated object, similar to the GET single event endpoint
     return jsonify({"message": f"Event {event_id} updated successfully"}), 200
 
 # add landmarks
