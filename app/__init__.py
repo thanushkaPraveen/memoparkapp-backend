@@ -31,9 +31,11 @@ def create_app(config_object='config.Config'):
         # Import the blueprints
         from .routes.auth import auth_bp
         from .routes.parking_routes import parking_bp
+        from .routes.score_routes import score_bp
 
         # Register the blueprints with the app
         app.register_blueprint(auth_bp)
         app.register_blueprint(parking_bp)
+        app.register_blueprint(score_bp)
 
     return app
