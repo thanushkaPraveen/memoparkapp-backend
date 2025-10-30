@@ -203,73 +203,180 @@ def update_parking_event(event_id):
             # --- Save Final Metrics ---
             if 'finalScreenTime' in data:
                 try:
-                    event.finalScreenTime = int(data['finalScreenTime'])
+                    screen_time_ms = int(data['finalScreenTime'])
+                    event.finalScreenTime = screen_time_ms // 1000  # Convert ms to seconds
                 except (ValueError, TypeError):
                     return jsonify({"message": "Invalid format for finalScreenTime"}), 400
+
             if 'finalMapViewCount' in data:
                 try:
                     event.finalMapViewCount = int(data['finalMapViewCount'])
                 except (ValueError, TypeError):
                     return jsonify({"message": "Invalid format for finalMapViewCount"}), 400
 
-            # --- Calculate and Save Score (Only if Retrieved and no score exists) ---
-            if new_status == 'retrieved' and not event.score:
+            # ===== HANDLE 'RETRIEVED' STATUS =====
+            if new_status == 'retrieved':
 
-                # 1. Get Landmark Counts
-                total_landmarks = len(event.landmarks)
-                achieved_landmarks = sum(1 for lm in event.landmarks if lm.is_achieved)
+                # Calculate Score (Only if no score exists)
+                if not event.score:
+                    try:
+                        # ===== 1. LANDMARK SCORE =====
+                        total_landmarks = len(event.landmarks)
+                        achieved_landmarks = sum(1 for lm in event.landmarks if lm.is_achieved)
+                        has_landmarks = total_landmarks > 0
 
-                # 2. Get Time Data (Handle potential None values)
-                actual_duration_seconds = None
-                if event.ended_at and event.navigation_started_at:
+                        landmark_factor = 0.0
+                        if total_landmarks > 0:
+                            landmark_factor = (float(achieved_landmarks) / float(total_landmarks)) * 100.0
+                        else:
+                            landmark_factor = 100.0
 
-                    # Make ended_at timezone-aware (assume UTC if naive)
-                    ended_at_aware = event.ended_at
-                    if ended_at_aware.tzinfo is None:
-                        ended_at_aware = ended_at_aware.replace(tzinfo=datetime.timezone.utc)
+                        # ===== 2. TIME SCORE =====
+                        actual_duration = None
+                        if event.ended_at and event.navigation_started_at:
+                            ended_at_aware = event.ended_at
+                            if ended_at_aware.tzinfo is None:
+                                ended_at_aware = ended_at_aware.replace(tzinfo=datetime.timezone.utc)
 
-                    # Make navigation_started_at timezone-aware (assume UTC if naive)
-                    nav_started_at_aware = event.navigation_started_at
-                    if nav_started_at_aware.tzinfo is None:
-                        nav_started_at_aware = nav_started_at_aware.replace(tzinfo=datetime.timezone.utc)
+                            nav_started_at_aware = event.navigation_started_at
+                            if nav_started_at_aware.tzinfo is None:
+                                nav_started_at_aware = nav_started_at_aware.replace(tzinfo=datetime.timezone.utc)
 
-                    # Now subtraction will work
-                    actual_duration_seconds = (ended_at_aware - nav_started_at_aware).total_seconds()
+                            actual_duration = (ended_at_aware - nav_started_at_aware).total_seconds()
 
-                estimated_duration_seconds = event.estimated_time # Already saved as int (seconds)
+                        estimated_duration = event.estimated_time
 
-                # 3. Calculate Score Components (Placeholder Logic - need to add FORMULA)
-                # Example: Simple calculation fot this time
-                landmark_factor_score = 0
-                if total_landmarks > 0:
-                    landmark_factor_score = (achieved_landmarks / total_landmarks) * 100  # Percentage
+                        time_factor = 0.0
+                        if actual_duration and estimated_duration and estimated_duration > 0:
+                            if actual_duration <= estimated_duration:
+                                time_factor = 100.0
+                            else:
+                                overtime_ratio = (actual_duration - float(estimated_duration)) / float(
+                                    estimated_duration)
+                                time_factor = max(0.0, 100.0 - (overtime_ratio * 100.0))
 
-                time_factor_score = 0
-                if actual_duration_seconds and estimated_duration_seconds and estimated_duration_seconds > 0:
-                    # Score based on how close actual time was to estimate (higher is better if faster)
-                    time_factor_score = max(0.0, 100 - abs(actual_duration_seconds - estimated_duration_seconds) / estimated_duration_seconds * 100)
+                        # ===== 3. PENALTIES =====
+                        map_view_count = event.finalMapViewCount or 0
 
-                    # Example final score (simple average) - REPLACE WITH YOUR FORMULA
-                final_task_score = (landmark_factor_score + time_factor_score) / 2
-                time_factor_score_rounded = round(time_factor_score, 2)
-                final_task_score_rounded = round(final_task_score, 2)
+                        # Peek penalty
+                        if map_view_count == 0:
+                            peek_penalty_points = 0.0
+                        elif map_view_count <= 3:
+                            peek_penalty_points = float(map_view_count * 1)
+                        elif map_view_count <= 7:
+                            peek_penalty_points = 3.0 + float((map_view_count - 3) * 1.5)
+                        else:
+                            peek_penalty_points = min(10.0, 9.0 + float((map_view_count - 7)) * 0.5)
 
-                path_performance = 12.9
+                        # CRITICAL FIX: Cap screen time at actual duration
+                        screen_time_raw = float(event.finalScreenTime or 0)
+                        screen_time = screen_time_raw
+                        assist_percentage = 0.0
 
-                # 4. Create Score Object
-                new_score = Score(
-                    parking_events_id=event_id,
-                    time_factor=time_factor_score_rounded,
-                    landmark_factor=round(landmark_factor_score, 2),
-                    path_performance= path_performance, # Add if needed
-                    assistance_points=event.finalMapViewCount,  #  map views as assistance points
-                    no_of_landmarks=total_landmarks,
-                    landmarks_recalled=achieved_landmarks,
-                    task_score=final_task_score_rounded
-                )
-                db.session.add(new_score)
+                        if actual_duration and actual_duration > 0:
+                            # Cap screen time - it cannot exceed navigation time!
+                            if screen_time_raw > actual_duration:
+                                print(
+                                    f"⚠️ WARNING: Screen time {screen_time_raw}s exceeds navigation {actual_duration}s")
+                                screen_time = actual_duration
+                                print(f"⚠️ Screen time capped to {screen_time}s (100% of navigation)")
 
-                event.status = 'active'
+                            # Calculate percentage using CAPPED screen time
+                            assist_percentage = (screen_time / float(actual_duration)) * 100.0
+                            assist_penalty_points = min(15.0, (assist_percentage / 5.0))
+                        else:
+                            # Fallback if no duration available
+                            assist_penalty_points = min(15.0, screen_time / 20.0)
+                            if screen_time > 0:
+                                assist_percentage = 100.0  # Assume worst case
+
+                        # ===== 4. PATH PERFORMANCE =====
+                        path_performance = 100.0 - (peek_penalty_points * 1.0) - (assist_penalty_points * 0.2)
+                        path_performance = max(0.0, min(100.0, path_performance))
+
+                        # ===== 5. CALCULATE FINAL SCORE =====
+                        if has_landmarks:
+                            base_score = (
+                                    (landmark_factor * 0.50) +
+                                    (time_factor * 0.30) +
+                                    (path_performance * 0.20)
+                            )
+                        else:
+                            base_score = (
+                                    (time_factor * 0.60) +
+                                    (path_performance * 0.40)
+                            )
+
+                        # Apply penalties
+                        total_penalty = peek_penalty_points + assist_penalty_points
+                        final_task_score = max(0.0, base_score - total_penalty)
+
+                        # Enhanced Debug logging
+                        print("=== SCORE CALCULATION DEBUG ===")
+                        print(f"Has Landmarks: {has_landmarks}")
+                        print(f"Achieved Landmarks: {achieved_landmarks}/{total_landmarks}")
+                        print(f"Actual Duration: {actual_duration}s vs Estimated: {estimated_duration}s")
+                        print(f"---")
+                        print(f"Map View Count: {map_view_count}")
+                        print(f"Screen Time (raw): {screen_time_raw}s")
+                        print(f"Screen Time (used): {screen_time}s")
+                        print(f"Screen Time %: {round(assist_percentage, 1)}%")
+                        print(f"---")
+
+                        if has_landmarks:
+                            print(f"Landmark Factor: {round(landmark_factor, 2)}% (Weight: 50%)")
+                            print(f"Time Factor: {round(time_factor, 2)}% (Weight: 30%)")
+                            print(f"Path Performance: {round(path_performance, 2)}% (Weight: 20%)")
+                            print(
+                                f"Base Score: {round(base_score, 2)} = ({round(landmark_factor, 2)} × 0.5) + ({round(time_factor, 2)} × 0.3) + ({round(path_performance, 2)} × 0.2)")
+                        else:
+                            print(f"Landmark Factor: N/A (No landmarks on this route)")
+                            print(f"Time Factor: {round(time_factor, 2)}% (Weight: 60%)")
+                            print(f"Path Performance: {round(path_performance, 2)}% (Weight: 40%)")
+                            print(
+                                f"Base Score: {round(base_score, 2)} = ({round(time_factor, 2)} × 0.6) + ({round(path_performance, 2)} × 0.4)")
+
+                        print(f"---")
+                        print(f"Peek Penalty: {round(peek_penalty_points, 2)} pts (max 10)")
+                        print(f"Assist Penalty: {round(assist_penalty_points, 2)} pts (max 15)")
+                        print(f"Total Penalty: {round(total_penalty, 2)} pts")
+                        print(f"---")
+                        print(f"FINAL SCORE: {round(final_task_score, 2)}")
+                        print("================================")
+
+                        # ===== 6. CREATE SCORE OBJECT =====
+                        new_score = Score(
+                            parking_events_id=event_id,
+                            time_factor=round(time_factor, 2),
+                            landmark_factor=round(landmark_factor, 2),
+                            landmarks_recalled=achieved_landmarks,
+                            no_of_landmarks=total_landmarks,
+                            path_performance=round(path_performance, 2),
+                            peek_penalty=int(map_view_count),
+                            assist_penalty=int(screen_time),  # Use CAPPED value
+                            task_score=round(final_task_score, 2),
+                            assistance_points=int(event.finalMapViewCount or 0),
+                        )
+                        db.session.add(new_score)
+
+                        # ✅ Score calculated successfully
+                        event.status = 'active'
+                        print("✅ Score calculated successfully. Status set to 'active'.")
+
+                    except Exception as e:
+                        print(f"❌ Error calculating score: {str(e)}")
+                        # Don't set status to 'active' if calculation failed
+                        return jsonify({"message": f"Error calculating score: {str(e)}"}), 500
+
+                else:
+                    # Score already exists - user wants to view it again
+                    # event.status = 'active'
+                    print("ℹ️ Score already exists.")
+
+            # ===== HANDLE 'EXPIRED' STATUS =====
+            elif new_status == 'expired':
+                event.status = 'expired'
+                print("⏰ Navigation expired. Status set to 'expired'.")
 
     if 'notes' in data:
         event.notes = data['notes']
