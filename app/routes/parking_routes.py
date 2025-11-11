@@ -110,8 +110,8 @@ def get_single_parking_event(event_id):
     if event.photo_s3_key:
         s3_client = boto3.client(
            "s3",
-           aws_access_key_id=current_app.config['AWS_ACCESS_KEY_ID'],
-           aws_secret_access_key=current_app.config['AWS_SECRET_ACCESS_KEY'],
+           # aws_access_key_id=current_app.config['AWS_ACCESS_KEY_ID'],
+           # aws_secret_access_key=current_app.config['AWS_SECRET_ACCESS_KEY'],
            region_name=current_app.config['AWS_REGION']
         )
         try:
@@ -501,8 +501,8 @@ def upload_photo_to_event(event_id):
 
     s3_client = boto3.client(
         "s3",
-        aws_access_key_id=current_app.config['AWS_ACCESS_KEY_ID'],
-        aws_secret_access_key=current_app.config['AWS_SECRET_ACCESS_KEY'],
+        # aws_access_key_id=current_app.config['AWS_ACCESS_KEY_ID'],
+        # aws_secret_access_key=current_app.config['AWS_SECRET_ACCESS_KEY'],
         region_name=current_app.config['AWS_REGION']
     )
 
@@ -542,8 +542,8 @@ def get_latest_active_parking_event():
     # --- S3 Client Setup (to be used for all pre-signed URLs) ---
     s3_client = boto3.client(
        "s3",
-       aws_access_key_id=current_app.config['AWS_ACCESS_KEY_ID'],
-       aws_secret_access_key=current_app.config['AWS_SECRET_ACCESS_KEY'],
+       # aws_access_key_id=current_app.config['AWS_ACCESS_KEY_ID'],
+       # aws_secret_access_key=current_app.config['AWS_SECRET_ACCESS_KEY'],
        region_name=current_app.config['AWS_REGION']
     )
 
