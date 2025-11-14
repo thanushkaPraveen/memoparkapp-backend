@@ -188,9 +188,11 @@ def update_parking_event(event_id):
         # If user starts navigating, set the navigation start time
         if new_status == 'retrieving':
             event.navigation_started_at = datetime.datetime.now(datetime.timezone.utc)
+            print(f" retrieving - navigation_started_at: {event.navigation_started_at}")
             if 'estimated_time' in data:
                 try:
                     event.estimated_time = int(data['estimated_time'])
+                    print(f" retrieving - estimated_time: {event.estimated_time}")
                 except (ValueError, TypeError):
                     return jsonify({"message": "Invalid format for estimated_time"}), 400
 
@@ -308,7 +310,7 @@ def update_parking_event(event_id):
                             )
 
                         # Apply penalties
-                        total_penalty = peek_penalty_points + assist_penalty_points
+                        total_penalty = peek_penalty_points
                         final_task_score = max(0.0, base_score - total_penalty)
 
                         # Enhanced Debug logging
